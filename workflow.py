@@ -10,17 +10,12 @@ async def search_node(state: BacklinkAgentState) -> BacklinkAgentState:
     """Search for guest post opportunities"""
     agent = BacklinkAgent()
     try:
-        # Call the method directly
         results = await agent.search_google(state.query)
         state.search_results = results
         print(f"Search found {len(results)} results")
     except Exception as e:
         print(f"Error in search_node: {e}")
-        # Return some fallback results if search fails
-        state.search_results = [
-            {"url": "https://example.com/write-for-us", "title": "Example Write for Us Page"},
-            {"url": "https://demo.org/guest-post", "title": "Guest Post Guidelines"}
-        ]
+        state.search_results = []
     
     return state
 
@@ -33,15 +28,12 @@ async def analyze_node(state: BacklinkAgentState) -> BacklinkAgentState:
         try:
             url = result.get('url', '')
             if url:
-                # Make sure url is a string
-                url_str = url if isinstance(url, str) else str(url)
-                opportunity = await agent.analyze_site(url_str)
-                opportunities.append(opportunity)
-                
-                # Update Google Sheets with found opportunity
-                opp_dict = opportunity.dict() if hasattr(opportunity, 'dict') else opportunity
-                agent.update_spreadsheet(opp_dict)
-                print(f"Analyzed site: {url}")
+                opportunity = await agent.analyze_site(url)
+                if opportunity.status != "error":
+                    opportunities.append(opportunity)
+                    # Update Google Sheets
+                    agent.update_spreadsheet(opportunity.__dict__)
+                    print(f"Analyzed site: {url}")
         except Exception as e:
             print(f"Error analyzing {result.get('url')}: {e}")
         
@@ -54,24 +46,18 @@ async def email_node(state: BacklinkAgentState) -> BacklinkAgentState:
     emails_sent = []
     
     for opportunity in state.opportunities:
-        if opportunity.status == "error":
-            continue
-            
         try:
-            # Make sure we pass proper dictionary
-            opp_dict = opportunity.dict() if hasattr(opportunity, 'dict') else dict(opportunity)
-            # Call the send_outreach_email method directly
-            result = await agent.send_outreach_email(opp_dict)
-            
+            result = await agent.send_outreach_email(opportunity.__dict__)
             emails_sent.append({
-                "opportunity": opp_dict,
+                "opportunity": opportunity.__dict__,
                 "result": result
             })
             
             # Update opportunity status
-            opportunity.status = result.get("status", "unknown")
+            opportunity.email_status = result.get("status", "unknown")
+            opportunity.email_sent_at = result.get("timestamp", "")
             
-            # Update Google Sheets with email status
+            # Update Google Sheets
             agent.update_spreadsheet({
                 "url": opportunity.url,
                 "email_status": result.get("status"),
@@ -90,13 +76,9 @@ async def check_replies_node(state: BacklinkAgentState) -> BacklinkAgentState:
     """Check for email replies to our outreach"""
     agent = BacklinkAgent()
     try:
-        # Call the check_for_email_replies method directly
         replies = await agent.check_for_email_replies()
-        
-        # Store the replies in the state
         state.replies = replies
         print(f"Found {len(replies)} email replies")
-        
     except Exception as e:
         print(f"Error checking for replies: {e}")
         state.replies = []
